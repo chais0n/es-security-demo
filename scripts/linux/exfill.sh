@@ -14,14 +14,14 @@ err_report() {
 trap err_report ERR
 
 
-# Load shared variables from config.sh
-# This expects the config.sh file to be in the same directory as this script
+# Load shared variables from .env
+# This expects the .env file to be in the scripts/ directory (one level up)
 # ***************************************************
 # !!!  DO NOT MAKE VARIABLE CHANGES HERE   !!!      *
-# !!!  MAKE VARIABLE CHANGES IN config.sh  !!!      *
+# !!!  MAKE VARIABLE CHANGES IN .env       !!!      *
 # ***************************************************
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/config.sh"
+source "$SCRIPT_DIR/../.env"
 
 # List of required variables
 required_vars=(

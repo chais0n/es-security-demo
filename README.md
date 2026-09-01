@@ -85,11 +85,16 @@ The project is structured like so:
 |   ├── es-sec-demo_overview.png
 │   ├── es-sec-demo_release_host.png
 │   └── es-sec-demo_remove_command.png
-├── scripts             # The heart of the demo environment
-│   ├── config.sh       # Contains variables used by these scripts
-|   ├── demo_setup.sh   # The setup script that copies files over to the target host and gets the environment ready to run
-│   ├── demo_start.sh   # Script (run from local machine) that kicks off all the "malicious" activity by calling exfill.sh
-│   └── exfill.sh       # Does all the "malicious" dirty work
+├── scripts                          # The heart of the demo environment
+│   ├── .env                         # Contains variables used by these scripts
+│   ├── demo_setup_linux.sh          # Copies files to the Linux target host and prepares the environment
+│   ├── demo_start_linux.sh          # Run from local machine; kicks off the Linux attack simulation
+│   ├── linux/
+│   │   └── exfill.sh                # Does all the "malicious" dirty work on the Linux target
+│   ├── demo_start_windows.sh        # Run from local machine; kicks off the Windows attack simulation
+│   └── windows/
+│       ├── config.ps1               # Windows-side variables (exfil target, key path, staging paths)
+│       └── exploit.ps1              # Multi-stage Windows attack simulation
 └── src                 # Source files for the binaries in case you want to modify them to your liking (just remember to re-compile)
     ├── move_along.c
     └── nothing_to_see_here.c
@@ -108,15 +113,15 @@ _NOTE: The ssh user account on the TARGET_HOST needs password-less sudo privs to
 
 Once the ssh users and keys are created and they're placed on the respective Local, TARGET, and EXFILL hosts, we can proceed.
 
-1. All demo scripts source variables from `scripts/config.sh`. In the `scripts/config.sh` script, modify the following values to mirror your environment:
+1. All demo scripts source variables from `scripts/.env`. In the `scripts/.env` file, modify the following values to mirror your environment:
    ```sh
    TARGET_HOST=''          # The hostname or IP of the host to which this script will attempt to login and start triggering alerts
    TARGET_HOST_ROOTDIR=''  # Base directory from which all of these alert triggers will be run on the target host
-   TARGET_HOST_SSH_USER='' # The user SSH account on the TARGET_HOST that the demo_start.sh script will use to ssh into the TARGET_HOST from the local machine
+   TARGET_HOST_SSH_USER='' # The user SSH account on the TARGET_HOST that the demo_start_linux.sh script will use to ssh into the TARGET_HOST from the local machine
    EXFILL_TARGET=''        # Where the scp command will attempt to "exfill" the data; another cloud instance or other host
    EXFILL_SSH_USER=''      # The user SSH account on the EXFILL_TARGET
    EXFILL_SSH_KEY=''       # The user account SSH private key on the TARGET_HOST that will be used to scp the 'exfill' data to the EXFILL_TARGET
-   LOCAL_SSH_KEY=''        # The local machine private key; used by the demo_setup.sh and demo_start.sh scripts on local machine to ssh into the TARGET_HOST
+   LOCAL_SSH_KEY=''        # The local machine private key; used by the demo_setup_linux.sh and demo_start_linux.sh scripts on local machine to ssh into the TARGET_HOST
    FILE='/dev/shm/totally_not_exfill.tar.gz' # The file that will be "exfilled." Recommended to leave this as-is unless you _know_ you need to change it
    ```
 2. Within Elastic Security, you'll need an Agent Policy assigned to an Agent running on the TARGET_HOST and EXFILL_HOST machines running the following integrations:
@@ -141,9 +146,9 @@ Once the ssh users and keys are created and they're placed on the respective Loc
       * All protection and event collections enabled and in "prevent" mode except "Malicious behavior protections" can be set to "detect" mode.
          * If you want to use OSquery (see "Usage" section below), "Malicious behavior protections" MUST be in "detect" mode; otherwise, Defend will kill the process that you will search for with OSquery (and thus the OSquery will return no results and you will feel foolish in front of your customer)
 
-3. First let's set up the demo environment with `demo_setup.sh` before kicking off the detection triggers:
+3. First let's set up the demo environment with `demo_setup_linux.sh` before kicking off the detection triggers:
 ```sh
-[user@host es-security-demo]$ sh demo_setup.sh
+[user@host es-security-demo]$ sh scripts/demo_setup_linux.sh
 Enter passphrase for /Users/user/.ssh/id_ecdsa:
 Copying files to xxx.xxx.xxx.xxx:/home/user/es-security-demo...Done
 ``` 
@@ -197,7 +202,7 @@ For usage examples, run:
 ### Normal Usage
 Kick off the detection trigger activity. This will attempt to ssh into the TARGET_HOST, run some commands, and do some things that trigger alerts. On your local machine you'll see some short output while these actions are taking place, followed by a ping to the TARGET_HOST:
 ```sh
-[user@host es-security-demo]$ sh demo_start.sh
+[user@host es-security-demo]$ sh scripts/demo_start_linux.sh
 Enter passphrase for /Users/user/.ssh/id_ecdsa:
 Generating some random noise for the Event Analyzer view...Done
 Triggering Account Discovery alerts...Done

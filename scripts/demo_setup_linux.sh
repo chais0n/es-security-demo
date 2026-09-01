@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# Load shared variables from config.sh
-# This expects the config.sh file to be in the same directory as this script
+# Load shared variables from .env
+# This expects the .env file to be in the same directory as this script
 # ****************************************************
-# *** MAKE VARIABLE CHANGES IN config.sh, NOT HERE ***
+# *** MAKE VARIABLE CHANGES IN .env, NOT HERE ***
 # ****************************************************
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/config.sh"
+source "$SCRIPT_DIR/.env"
 
 # List of required variables
 required_vars=(
@@ -58,7 +58,7 @@ fi
 
 printf '\033[1;32mNo\033[0m\n'
 /bin/echo -n "Copying files to $TARGET_HOST:$TARGET_HOST_ROOTDIR..."
-tar --no-xattrs -C .. -cf - -- src bin files response scripts/{config.sh,exfill.sh} | \
+tar --no-xattrs -C .. -cf - -- src bin files response scripts/{.env,linux/exfill.sh} | \
 ssh $TARGET_HOST_SSH_USER@$TARGET_HOST \
 "set -e; DEST=$(printf %q "$TARGET_HOST_ROOTDIR"); tar -xf - -C \"\$DEST\""
 
