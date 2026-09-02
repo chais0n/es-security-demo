@@ -11,7 +11,7 @@ A multi-stage Windows attack simulation that triggers Elastic Security detection
 | Stage | Tactic | MITRE | What Happens |
 |---|---|---|---|
 | 1 | Discovery | T1069, T1087 | Enumerates local admin group and domain admin accounts via `net.exe` and `wmic` |
-| 2 | Initial Access | T1566, T1059, T1218 | Activates the `Shell.Application` COM object, causing `explorer.exe -Embedding` to spawn `cmd.exe` — simulating a malicious OLE object embedded in a document |
+| 2 | Initial Access | T1218.005 | Invokes `mshta.exe` with an inline VBScript payload — Elastic Endpoint prevents execution and fires a built-in malicious behavior alert before `mshta.exe` can spawn a child process |
 | 3 | Execution / Defense Evasion | T1059.001, T1027.010 | Executes an obfuscated PowerShell payload (char-casting, base64 encode/decode, string concatenation) to trigger the ML anomaly detection job |
 | 4 | Persistence | T1053.005 | Creates a scheduled task via `schtasks.exe`; removed during cleanup |
 | 5 | Credential Access | T1003 | Invokes `ntdsutil` with `create full` arguments — fails on a non-DC host but the process creation event triggers the detection rule |
@@ -24,7 +24,7 @@ A multi-stage Windows attack simulation that triggers Elastic Security detection
 | Rule | Tactic | Link |
 |---|---|---|
 | Enumeration of Administrator Accounts | Discovery | [↗](https://elastic.github.io/detection-rules-explorer/rules/871ea072-1b71-4def-b016-6278b505138d) |
-| Suspicious Explorer Child Process | Initial Access | [↗](https://elastic.github.io/detection-rules-explorer/rules/9a5b4e31-6cde-4295-9ff7-6be1b8567e1b) |
+| Malicious Behavior Prevention Alert: Script Execution via Microsoft HTML Application | Initial Access | Elastic Endpoint built-in |
 | Suspicious Powershell Script _(ML)_ | Execution / Defense Evasion | [↗](https://elastic.github.io/detection-rules-explorer/rules/1781d055-5c66-4adf-9d60-fc0fa58337b6) |
 | Malicious Behavior Prevention Alert: Scheduled Task Creation by an Unusual Process | Persistence | Elastic Endpoint built-in |
 | Potential Credential Access via Windows Utilities | Credential Access | [↗](https://elastic.github.io/detection-rules-explorer/rules/00140285-b827-4aee-aa09-8113f58a08f3) |
@@ -34,8 +34,8 @@ A multi-stage Windows attack simulation that triggers Elastic Security detection
 #### Enumeration of Administrator Accounts
 Fires when `net.exe` or `wmic.exe` queries admin or domain group membership from a non-SYSTEM account. Specifically matches args containing `group`/`localgroup`/`useraccount` combined with targets like `administrators`, `Domain Admins`, `Enterprise Admins`, or `Remote Desktop Users`.
 
-#### Suspicious Explorer Child Process
-Fires when `explorer.exe` launched with `-Embedding` (i.e., activated as a COM/DCOM out-of-process server) spawns `cmd.exe`, `powershell.exe`, `wscript.exe`, `cscript.exe`, `rundll32.exe`, `mshta.exe`, or `regsvr32.exe`. This is the pattern produced when a malicious OLE object embedded in a document executes a shell command.
+#### Malicious Behavior Prevention Alert: Script Execution via Microsoft HTML Application
+Elastic Endpoint built-in prevention rule. Fires when `mshta.exe` executes an inline VBScript or JScript payload. `mshta.exe` is a signed Windows binary used to execute HTML Application (HTA) files — attackers abuse it as a LOLBin to proxy code execution and bypass application allowlisting. Elastic Endpoint kills `mshta.exe` before it can spawn a child process, so the SIEM rule "Suspicious Microsoft HTML Application Child Process" (which requires a child process) does not fire; the Endpoint built-in fires instead.
 
 #### Suspicious Powershell Script (ML)
 ML rule backed by the `v3_windows_anomalous_script_ea` job. Ingests PowerShell Script Block Logging events (Event ID 4104) and scores script characteristics against a baseline — entropy, obfuscation patterns, base64 usage, character substitution. Fires when the anomaly score exceeds 50. **Requires the ML job to be running and a trained baseline in your environment** — may not fire on first run.
