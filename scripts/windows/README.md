@@ -8,28 +8,18 @@ A multi-stage Windows attack simulation that triggers Elastic Security detection
 
 `exploit.ps1` runs on the Windows target host and walks through the following attack chain:
 
-| Stage | Tactic | MITRE | What Happens |
-|---|---|---|---|
-| 1 | Discovery | T1069, T1087 | Enumerates local admin group and domain admin accounts via `net.exe` and `wmic` |
-| 2 | Initial Access | T1218.005 | Invokes `mshta.exe` with an inline VBScript payload — Elastic Endpoint prevents execution and fires a built-in malicious behavior alert before `mshta.exe` can spawn a child process |
-| 3 | Execution / Defense Evasion | T1059.001, T1027.010 | Executes an obfuscated PowerShell payload (char-casting, base64 encode/decode, string concatenation) to trigger the ML anomaly detection job |
-| 4 | Persistence | T1053.005 | Creates a scheduled task via `schtasks.exe`; removed during cleanup |
-| 5 | Credential Access | T1003 | Invokes `ntdsutil` with `create full` arguments — fails on a non-DC host but the process creation event triggers the detection rule |
-| — | Cleanup | — | Deletes the scheduled task |
+| Stage | Tactic | MITRE | Detection Rule | What Happens |
+|---|---|---|---|---|
+| 1 | Discovery | T1069, T1087 | [Enumeration of Administrator Accounts](https://elastic.github.io/detection-rules-explorer/rules/871ea072-1b71-4def-b016-6278b505138d) | Enumerates local admin group and domain admin accounts via `net.exe` and `wmic` |
+| 2 | Initial Access | T1218.005 | Malicious Behavior Prevention Alert: Script Execution via Microsoft HTML Application _(Endpoint built-in)_ | Invokes `mshta.exe` with an inline VBScript payload — Elastic Endpoint prevents execution and fires a built-in malicious behavior alert before `mshta.exe` can spawn a child process |
+| 3 | Execution / Defense Evasion | T1059.001, T1027.010 | [Suspicious Powershell Script _(ML)_](https://elastic.github.io/detection-rules-explorer/rules/1781d055-5c66-4adf-9d60-fc0fa58337b6) | Executes an obfuscated PowerShell payload (char-casting, base64 encode/decode, string concatenation) to trigger the ML anomaly detection job |
+| 4 | Persistence | T1053.005 | Malicious Behavior Prevention Alert: Scheduled Task Creation by an Unusual Process _(Endpoint built-in)_ | Creates a scheduled task via `schtasks.exe`; removed during cleanup |
+| 5 | Credential Access | T1003 | [Potential Credential Access via Windows Utilities](https://elastic.github.io/detection-rules-explorer/rules/00140285-b827-4aee-aa09-8113f58a08f3) | Invokes `ntdsutil` with `create full` arguments — fails on a non-DC host but the process creation event triggers the detection rule |
+| — | Cleanup | — | — | Deletes the scheduled task |
 
 ---
 
-## Elastic Detection Rules
-
-| Rule | Tactic | Link |
-|---|---|---|
-| Enumeration of Administrator Accounts | Discovery | [↗](https://elastic.github.io/detection-rules-explorer/rules/871ea072-1b71-4def-b016-6278b505138d) |
-| Malicious Behavior Prevention Alert: Script Execution via Microsoft HTML Application | Initial Access | Elastic Endpoint built-in |
-| Suspicious Powershell Script _(ML)_ | Execution / Defense Evasion | [↗](https://elastic.github.io/detection-rules-explorer/rules/1781d055-5c66-4adf-9d60-fc0fa58337b6) |
-| Malicious Behavior Prevention Alert: Scheduled Task Creation by an Unusual Process | Persistence | Elastic Endpoint built-in |
-| Potential Credential Access via Windows Utilities | Credential Access | [↗](https://elastic.github.io/detection-rules-explorer/rules/00140285-b827-4aee-aa09-8113f58a08f3) |
-
-### Rule Details
+## Detection Rule Details
 
 #### Enumeration of Administrator Accounts
 Fires when `net.exe` or `wmic.exe` queries admin or domain group membership from a non-SYSTEM account. Specifically matches args containing `group`/`localgroup`/`useraccount` combined with targets like `administrators`, `Domain Admins`, `Enterprise Admins`, or `Remote Desktop Users`.
