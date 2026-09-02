@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 
-# Load shared variables from .env
-# This expects the .env file to be in the same directory as this script
 # ****************************************************
 # *** MAKE VARIABLE CHANGES IN .env, NOT HERE ***
 # ****************************************************
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/.env"
 
-# List of required variables
 required_vars=(
   WINDOWS_TARGET_HOST
   WINDOWS_TARGET_ROOTDIR
@@ -16,7 +13,6 @@ required_vars=(
   WINDOWS_TARGET_SSH_KEY
 )
 
-# Check each one
 missing=()
 for var in "${required_vars[@]}"; do
   if [ -z "${!var:-}" ]; then
@@ -32,19 +28,39 @@ if [ "${#missing[@]}" -gt 0 ]; then
   exit 1
 fi
 
-# Ensure an SSH agent is running
-if ! ssh-add -l >/dev/null 2>&1; then
-  eval "$(ssh-agent -s)" >/dev/null
-fi
-# Load SSH key
-ssh-add "$WINDOWS_TARGET_SSH_KEY" >/dev/null 2>&1
+EXPLOIT_PS1="$WINDOWS_TARGET_ROOTDIR/scripts/windows/exploit.ps1"
+ML_PS1="$WINDOWS_TARGET_ROOTDIR/scripts/windows/ml_trigger.ps1"
 
-# SSH into the Windows host and run the exploit via PowerShell
-# Windows OpenSSH must be enabled on the target (Settings → Apps → Optional Features → OpenSSH Server)
-ssh "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST" \
-  "powershell.exe -ExecutionPolicy Bypass -File \"$WINDOWS_TARGET_ROOTDIR/scripts/windows/exploit.ps1\""
+# Run one stage via its own SSH connection.
+# Each stage is isolated: if Elastic Endpoint kills that process (prevention),
+# it cannot affect any other stage - the next SSH call starts a fresh process.
+run_stage() {
+    local stage_num="$1"
+    local ps1="${2:-$EXPLOIT_PS1}"
+    local args="${3:-}"
+    ssh -i "$WINDOWS_TARGET_SSH_KEY" "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST" \
+        "powershell.exe -ExecutionPolicy Bypass -File \"$ps1\" $args"
+    local rc=$?
+    if [ $rc -ne 0 ]; then
+        printf '  \033[1;31m[PREVENTED - Elastic Endpoint killed the process (exit %d)]\033[0m\n' "$rc"
+    fi
+}
 
-ping "$WINDOWS_TARGET_HOST"
+run_stage 1 "$EXPLOIT_PS1" "-Stage 1"   # Discovery
+run_stage 2 "$EXPLOIT_PS1" "-Stage 2"   # Initial Access
+
+# Stage 3: ml_trigger.ps1 runs as its own isolated process.
+# exploit.ps1 must NOT contain any obfuscated code - Script Block Logging
+# logs the entire file on load, and Elastic would kill the process before
+# any stage runs, blocking stages 1, 2, 4, and 5 as collateral damage.
+printf '\n'
+printf '\033[0;36m--- [3/5] Execution - Obfuscated payload for ML anomaly detection (T1059.001, T1027.010) ---\033[0m\n'
+printf '  Executing obfuscated script (ml_trigger.ps1)...'
+run_stage 3 "$ML_PS1" ""
+
+run_stage 4 "$EXPLOIT_PS1" "-Stage 4"   # Persistence
+run_stage 5 "$EXPLOIT_PS1" "-Stage 5"   # Credential Access
+run_stage 6 "$EXPLOIT_PS1" "-Stage 6"   # Cleanup
 
 printf '\n'
 printf '\033[1;33m══════════════════════════════════════════════\033[0m\n'

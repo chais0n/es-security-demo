@@ -1,8 +1,6 @@
 # Windows Attack Simulation
 
-A multi-stage Windows attack simulation that triggers Elastic Security detection rules across eight MITRE ATT&CK tactics — from initial discovery through exfiltration. Non-destructive: all changes made to the host are reversed during the cleanup phase.
-
-Exfiltrated data is SCP'd to a separate Ubuntu host (the same exfil target used by the Linux demo).
+A multi-stage Windows attack simulation that triggers Elastic Security detection rules across five MITRE ATT&CK tactics. Non-destructive: the scheduled task created during persistence is removed during the cleanup phase.
 
 ---
 
@@ -10,23 +8,43 @@ Exfiltrated data is SCP'd to a separate Ubuntu host (the same exfil target used 
 
 `exploit.ps1` runs on the Windows target host and walks through the following attack chain:
 
-| Stage | Tactic | What Happens |
+| Stage | Tactic | MITRE | What Happens |
+|---|---|---|---|
+| 1 | Discovery | T1069, T1087 | Enumerates local admin group and domain admin accounts via `net.exe` and `wmic` |
+| 2 | Initial Access | T1566, T1059, T1218 | Activates the `Shell.Application` COM object, causing `explorer.exe -Embedding` to spawn `cmd.exe` — simulating a malicious OLE object embedded in a document |
+| 3 | Execution / Defense Evasion | T1059.001, T1027.010 | Executes an obfuscated PowerShell payload (char-casting, base64 encode/decode, string concatenation) to trigger the ML anomaly detection job |
+| 4 | Persistence | T1053.005 | Creates a scheduled task via `schtasks.exe`; removed during cleanup |
+| 5 | Credential Access | T1003 | Invokes `ntdsutil` with `create full` arguments — fails on a non-DC host but the process creation event triggers the detection rule |
+| — | Cleanup | — | Deletes the scheduled task |
+
+---
+
+## Elastic Detection Rules
+
+| Rule | Tactic | Link |
 |---|---|---|
-| 1 | Discovery | Enumerates the user, system info, local accounts, network config, and domain trusts; queries a public IP lookup service |
-| 2 | Execution | Spawns a PowerShell child process with encoded command flags; calls `[Reflection.Assembly]::Load` on a non-existent path (fails silently but triggers detection via Script Block Logging); starts a hidden background `powershell.exe` process |
-| 3 | Defense Evasion | Clears PowerShell console history (`Add-MpPreference`/`Set-MpPreference` are skipped — Elastic tamper protection terminates the parent process regardless of indirection) |
-| 4 | Credential Access | Enumerates saved credentials via `cmdkey` and `VaultCmd` |
-| 5 | Persistence | Registers a scheduled task (removed during cleanup) |
-| 6 | Collection | Captures clipboard data; collects the hosts file and environment variables; compresses everything into an archive |
-| 7 | Command & Control | Makes HTTP requests to Pastebin and a known indicator URL via `curl.exe` |
-| 8 | Exfiltration | SCPs the compressed archive to the Ubuntu exfil host |
-| — | Cleanup | Removes the staged archive, staging directory, and scheduled task; a hidden background `powershell.exe` process and the in-memory assembly remain running for demo observation |
+| Enumeration of Administrator Accounts | Discovery | [↗](https://elastic.github.io/detection-rules-explorer/rules/871ea072-1b71-4def-b016-6278b505138d) |
+| Suspicious Explorer Child Process | Initial Access | [↗](https://elastic.github.io/detection-rules-explorer/rules/9a5b4e31-6cde-4295-9ff7-6be1b8567e1b) |
+| Suspicious Powershell Script _(ML)_ | Execution / Defense Evasion | [↗](https://elastic.github.io/detection-rules-explorer/rules/1781d055-5c66-4adf-9d60-fc0fa58337b6) |
+| Malicious Behavior Prevention Alert: Scheduled Task Creation by an Unusual Process | Persistence | Elastic Endpoint built-in |
+| Potential Credential Access via Windows Utilities | Credential Access | [↗](https://elastic.github.io/detection-rules-explorer/rules/00140285-b827-4aee-aa09-8113f58a08f3) |
 
-### Windows Analog to the Linux `/dev/shm` Trick
+### Rule Details
 
-The Linux demo runs binaries from `/dev/shm`, deletes them, then shows the process still running in memory. The Windows equivalent is a hidden `powershell.exe` process started during the Execution stage that stays alive after the script finishes — observable in Task Manager or Elastic Event Analyzer.
+#### Enumeration of Administrator Accounts
+Fires when `net.exe` or `wmic.exe` queries admin or domain group membership from a non-SYSTEM account. Specifically matches args containing `group`/`localgroup`/`useraccount` combined with targets like `administrators`, `Domain Admins`, `Enterprise Admins`, or `Remote Desktop Users`.
 
-The `defense_evasion_posh_assembly_load` rule is triggered via Script Block Logging: `[System.Reflection.Assembly]::Load` is called in the script and captured by Event ID 4104. The call itself fails silently (the path does not exist), but the detection rule fires on the pattern in the logged script block — no compiler is spawned, which keeps Elastic Endpoint from killing the process mid-run.
+#### Suspicious Explorer Child Process
+Fires when `explorer.exe` launched with `-Embedding` (i.e., activated as a COM/DCOM out-of-process server) spawns `cmd.exe`, `powershell.exe`, `wscript.exe`, `cscript.exe`, `rundll32.exe`, `mshta.exe`, or `regsvr32.exe`. This is the pattern produced when a malicious OLE object embedded in a document executes a shell command.
+
+#### Suspicious Powershell Script (ML)
+ML rule backed by the `v3_windows_anomalous_script_ea` job. Ingests PowerShell Script Block Logging events (Event ID 4104) and scores script characteristics against a baseline — entropy, obfuscation patterns, base64 usage, character substitution. Fires when the anomaly score exceeds 50. **Requires the ML job to be running and a trained baseline in your environment** — may not fire on first run.
+
+#### Malicious Behavior Prevention Alert: Scheduled Task Creation by an Unusual Process
+Elastic Endpoint built-in malicious behavior rule. Fires when a process that does not normally create scheduled tasks (e.g., a PowerShell script) spawns `schtasks.exe` to register a new task. This is a prevention-class rule — Elastic Endpoint may kill the offending process.
+
+#### Potential Credential Access via Windows Utilities
+Fires on known credential-dumping tool invocations: `procdump -ma`, `rundll32 comsvcs MiniDump`, `ntdsutil cr*fu*`, `diskshadow /s`, and others. This demo uses `ntdsutil` with `create full` arguments, which will fail on a non-domain-controller host — but the process creation event fires the detection regardless.
 
 ---
 
@@ -37,169 +55,86 @@ The `defense_evasion_posh_assembly_load` rule is triggered via Script Block Logg
 - PowerShell 5.0+
 - Windows OpenSSH Server enabled (`Settings → System → Optional Features → OpenSSH Server`)
 - Elastic Agent with Endpoint integration enrolled and running
-- PowerShell Script Block Logging enabled (see note below)
+- PowerShell Script Block Logging enabled (required for the ML rule)
 
 **On your local machine (Mac/Linux):**
-- SSH access to the Windows host
-- SSH key for the Windows host added to your agent or specified in `scripts/.env`
-
-### Why PowerShell Script Block Logging Is Required
-
-Several Elastic detection rules work by reading the content of PowerShell scripts as they execute, not just the fact that `powershell.exe` was launched. Windows captures that content via **Event ID 4104** — but only when Script Block Logging is enabled.
-
-Without it, the commands still run, but Windows never writes the event and Elastic never sees the script content. The rules that depend on it will not fire.
-
-The affected rules in this demo are:
-
-| Rule | What it looks for in the script |
-|---|---|
-| `defense_evasion_posh_assembly_load` | `[System.Reflection.Assembly]::Load($bytes)` |
-| `defense_evasion_defender_exclusion_via_powershell` | `Add-MpPreference -ExclusionPath` |
-| `defense_evasion_disabling_windows_defender_powershell` | `Set-MpPreference -DisableRealtimeMonitoring` |
-| `collection_posh_clipboard_capture` | `Get-Clipboard` |
-| `defense_evasion_clearing_windows_console_history` | `Remove-Item` targeting `ConsoleHost_history.txt` |
-
-Rules that trigger on **process execution events** (e.g. `whoami.exe`, `nltest.exe`, `schtasks.exe` being spawned) do not need Script Block Logging — Elastic Endpoint captures those at the kernel level regardless.
-
-Elastic Endpoint typically enables Script Block Logging automatically on enrolled hosts. Verify it is active before the demo with the command in the checklist below.
-
-**On the Ubuntu exfil host:**
-- Elastic Agent enrolled and running
-- The Windows host's SSH public key in `~/.ssh/authorized_keys` for the exfil user
+- SSH access to the Windows host with key configured in `scripts/.env`
 
 ---
 
 ## Setup
 
-### 1. Configure `scripts/.env` (local machine)
-
-Add your Windows target host details to `scripts/.env`:
+### 1. Configure `scripts/.env`
 
 ```sh
-WINDOWS_TARGET_HOST=''          # IP or hostname of the Windows host
+WINDOWS_TARGET_HOST=''
 WINDOWS_TARGET_SSH_USER='bad_guy'
-WINDOWS_TARGET_SSH_KEY=''       # Local path to your SSH private key for the Windows host
+WINDOWS_TARGET_SSH_KEY=''
 WINDOWS_TARGET_ROOTDIR='C:/Users/bad_guy/es-security-demo'
 ```
 
-### 2. Configure `scripts/windows/config.ps1` (Windows host)
+### 2. Generate an SSH key pair (local machine)
 
-Update these values to match your environment before deploying to the Windows host:
-
-```powershell
-$ExfilTarget  = ''              # IP of the Ubuntu exfil host
-$ExfilUser    = 'bad_lady'      # SSH user on the Ubuntu exfil host
-$ExfilKeyPath = 'C:\Users\bad_guy\.ssh\your-key'  # SSH key on the Windows host for SCP to Ubuntu
-$ExfilFile    = "$env:TEMP\totally_not_exfil_win.zip"
-```
-
-### 3. Deploy the repo to the Windows host
-
-Copy the repo to the Windows host via SCP or another method. The files must exist at `WINDOWS_TARGET_ROOTDIR` before running the demo. Example using SCP from your local machine:
+Run this on your Mac/Linux machine if you don't already have a key for this host:
 
 ```sh
-scp -r /path/to/es-security-demo bad_guy@<WINDOWS_HOST>:C:/Users/bad_guy/
+ssh-keygen -t ed25519 -f ~/.ssh/cgrfn-gcp-win_badguy -C "bad_guy@demo"
 ```
 
-### 4. Place the SSH key for the exfil host on the Windows host
+Set `WINDOWS_TARGET_SSH_KEY` in `scripts/.env` to the path of the **private** key.
 
-The Windows host needs an SSH private key to SCP data to the Ubuntu exfil host. Copy it to the path set in `$ExfilKeyPath` in `config.ps1`.
+### 3. Configure SSH access on the Windows host
 
----
+Do these steps **locally on the Windows host** (PowerShell as Administrator).
 
-## Running the Demo
+**Install OpenSSH Server** (if not already installed):
 
-### From your local machine (recommended)
+```powershell
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Start-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+```
+
+**Create the `.ssh` directory and `authorized_keys` file** for the `bad_guy` user:
+
+```powershell
+New-Item -ItemType Directory -Force -Path "C:\Users\bad_guy\.ssh"
+New-Item -ItemType File -Force -Path "C:\Users\bad_guy\.ssh\authorized_keys"
+```
+
+**Add your public key** — paste the contents of your local `~/.ssh/cgrfn-gcp-win_badguy.pub` into `authorized_keys`:
+
+```powershell
+Add-Content "C:\Users\bad_guy\.ssh\authorized_keys" "paste-your-public-key-here"
+```
+
+### 4. Test SSH access
+
+From your local machine, verify the key works before deploying:
+
+```sh
+source scripts/.env && ssh -i "$WINDOWS_TARGET_SSH_KEY" "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST" "whoami"
+```
+
+Expected output: `bad_guy` (or the fully-qualified `hostname\bad_guy`). If the connection is refused or the key is rejected, recheck the `authorized_keys` file contents and permissions on the Windows host.
+
+### 5. Deploy to the Windows host
+
+```sh
+sh scripts/demo_setup_windows.sh
+```
+
+### 6. Run the demo
 
 ```sh
 sh scripts/demo_start_windows.sh
 ```
 
-This SSHes into the Windows host and runs `exploit.ps1` remotely via PowerShell.
-
-### Directly on the Windows host
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File C:\Users\bad_guy\es-security-demo\scripts\windows\exploit.ps1
-```
-
----
-
-## Pre-Demo Checklist
-
-Run these on the Windows host before the demo to avoid surprises:
-
-```powershell
-# Confirm Script Block Logging is enabled (required for several rules)
-Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging' -ErrorAction SilentlyContinue
-# EnableScriptBlockLogging should be 1; if the key is missing, Elastic Endpoint may still enable it
-
-# Confirm OpenSSH is available (required for exfil)
-Get-Command scp.exe
-
-# Confirm Elastic Endpoint is running
-Get-Service -Name "Elastic Endpoint" | Select-Object Status
-
-# Confirm the exfil SSH key is in place
-Test-Path $ExfilKeyPath   # run after dot-sourcing config.ps1
-
-# Verify connectivity to the exfil host
-ssh -i $ExfilKeyPath -o BatchMode=yes $ExfilUser@$ExfilTarget "echo ok"
-```
-
----
-
-## Elastic Detection Rules
-
-### Rules that will fire (no conditions)
-
-These trigger on process execution events, which Elastic Endpoint collects by default.
-
-| Rule | Trigger |
-|---|---|
-| `discovery_whoami_command_activity` | `whoami /all` spawned from `powershell.exe` |
-| `discovery_privileged_localgroup_membership` | `net localgroup administrators` |
-| `discovery_enumerating_domain_trusts_via_nltest` | `nltest /domain_trusts` — fires even on non-domain-joined machines |
-| `discovery_host_public_ip_address_lookup` | `curl.exe` connecting to `ifconfig.me` from a non-browser process |
-| `execution_windows_powershell_susp_args` | `powershell.exe -NoProfile -NonInteractive -EncodedCommand` |
-| `credential_access_saved_creds_vaultcmd` | `cmdkey /list` and `VaultCmd /list` |
-| `persistence_local_scheduled_task_creation` | Windows Security Event 4698 fires on `Register-ScheduledTask` |
-| `command_and_control_common_webservices` | `Invoke-WebRequest` to `pastebin.com` from `powershell.exe` |
-
-### Rules that fire only if PowerShell Script Block Logging is enabled
-
-Elastic Endpoint typically enables Script Block Logging (Event ID 4104) automatically on managed hosts. Verify before the demo.
-
-| Rule | Trigger |
-|---|---|
-| `defense_evasion_posh_assembly_load` | `[System.Reflection.Assembly]::Load($bytes)` in the script block |
-| `collection_posh_clipboard_capture` | `Get-Clipboard` in the script block |
-| `defense_evasion_clearing_windows_console_history` | `Remove-Item` targeting `ConsoleHost_history.txt` — only fires if the history file exists on the host |
-
-### Additional rules likely to fire
-
-| Rule | Why |
-|---|---|
-| `persistence_local_scheduled_task_scripting` | The registered task runs `powershell.exe -WindowStyle Hidden` |
-
-### Rules that may not fire
-
-| Rule | Why |
-|---|---|
-| `discovery_admin_recon` | `systeminfo` and `net user` alone may not satisfy the threshold — this rule typically requires a sequence of recon commands within a short window |
-| `command_and_control_tool_transfer_via_curl` | The rule may specifically look for curl used with file-write flags (`-O`, `-o`); a basic `curl -s` GET may not qualify — the indicator match on `x.com/dlr.ppc` is more reliable |
-
-### What will not fire
-
-- **Any named exfiltration rule** — `scp.exe` over port 22 appears as network telemetry but does not match `exfiltration_smb_rare_destination`, `exfiltration_rclone_cloud_upload`, or `exfiltration_excessive_dns_queries_by_process`. The exfil is visible in Discover and network views.
-- **LSASS / credential dumping rules** — the script does not touch LSASS
-- **Lateral movement rules** — this exploit runs on a single host
-
 ---
 
 ## Cleanup
 
-Everything is cleaned up automatically at the end of `exploit.ps1`. If the script fails before reaching its cleanup stage, the scheduled task may still be registered — remove it manually:
+The script removes the scheduled task automatically. If it fails mid-run, remove it manually:
 
 ```bash
 source scripts/.env && ssh -i "$WINDOWS_TARGET_SSH_KEY" "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST" "schtasks /Delete /TN \"WindowsSystemHealthMonitor\" /F"

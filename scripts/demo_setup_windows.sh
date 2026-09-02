@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 
-# Load shared variables from .env
-# This expects the .env file to be in the same directory as this script
 # ****************************************************
 # *** MAKE VARIABLE CHANGES IN .env, NOT HERE ***
 # ****************************************************
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/.env"
 
-# List of required variables
 required_vars=(
   WINDOWS_TARGET_HOST
   WINDOWS_TARGET_ROOTDIR
@@ -16,7 +13,6 @@ required_vars=(
   WINDOWS_TARGET_SSH_KEY
 )
 
-# Check each one
 missing=()
 for var in "${required_vars[@]}"; do
   if [ -z "${!var:-}" ]; then
@@ -32,16 +28,13 @@ if [ "${#missing[@]}" -gt 0 ]; then
   exit 1
 fi
 
-# Ensure an SSH agent is running
 if ! ssh-add -l >/dev/null 2>&1; then
   eval "$(ssh-agent -s)" >/dev/null
 fi
-# Load SSH key
 ssh-add "$WINDOWS_TARGET_SSH_KEY" >/dev/null 2>&1
 
-# Check if the destination directory already exists and fail if it does
 /bin/echo -n "Checking if $WINDOWS_TARGET_HOST:$WINDOWS_TARGET_ROOTDIR exists..."
-ssh "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST" \
+ssh -i "$WINDOWS_TARGET_SSH_KEY" "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST" \
   "powershell.exe -Command \"if (Test-Path '$WINDOWS_TARGET_ROOTDIR') { exit 17 }; New-Item -ItemType Directory -Force -Path '$WINDOWS_TARGET_ROOTDIR/scripts/windows' | Out-Null\""
 
 exit_code=$?
@@ -56,8 +49,10 @@ fi
 printf '\033[1;32mNo\033[0m\n'
 /bin/echo -n "Copying files to $WINDOWS_TARGET_HOST:$WINDOWS_TARGET_ROOTDIR..."
 
-scp "$SCRIPT_DIR/windows/config.ps1" \
+scp -i "$WINDOWS_TARGET_SSH_KEY" \
+    "$SCRIPT_DIR/windows/config.ps1" \
     "$SCRIPT_DIR/windows/exploit.ps1" \
+    "$SCRIPT_DIR/windows/ml_trigger.ps1" \
     "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST:$WINDOWS_TARGET_ROOTDIR/scripts/windows/"
 
 if [ $? -ne 0 ]; then
