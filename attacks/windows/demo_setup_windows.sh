@@ -50,7 +50,6 @@ printf '\033[1;32mNo\033[0m\n'
 /bin/echo -n "Copying files to $WINDOWS_TARGET_HOST:$WINDOWS_TARGET_ROOTDIR..."
 
 scp -i "$WINDOWS_TARGET_SSH_KEY" \
-    "$SCRIPT_DIR/config.ps1" \
     "$SCRIPT_DIR/exploit.ps1" \
     "$SCRIPT_DIR/ml_trigger.ps1" \
     "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST:$WINDOWS_TARGET_ROOTDIR/attacks/windows/"

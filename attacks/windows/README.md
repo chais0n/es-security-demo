@@ -15,9 +15,10 @@ A multi-stage Windows attack simulation that triggers Elastic Security detection
 | 3 | Execution / Defense Evasion | T1059.001, T1027.010 | [Suspicious Powershell Script _(ML)_](https://elastic.github.io/detection-rules-explorer/rules/1781d055-5c66-4adf-9d60-fc0fa58337b6) _(requires trained baseline)_ **and/or** Malicious Behavior Prevention Alert: Potential Obfuscated PowerShell Script _(Endpoint built-in)_ | Executes an obfuscated PowerShell payload (char-casting, base64 encode/decode, string concatenation) — Endpoint fires a prevention alert on script load; the ML rule fires separately via Script Block Logging (Event 4104) once the job has a trained baseline |
 | 4 | Persistence | T1053.005 | Malicious Behavior Prevention Alert: Suspicious Scheduled Task Creation _(Endpoint built-in)_ | Creates a scheduled task via `schtasks.exe`; removed during cleanup |
 | 5 | Credential Access | T1003.003 | [Potential Credential Access via Windows Utilities](https://elastic.github.io/detection-rules-explorer/rules/00140285-b827-4aee-aa09-8113f58a08f3) **and** Malicious Behavior Prevention Alert: Credential Access via Known Utilities _(Endpoint built-in)_ | Invokes `diskshadow /s` to simulate VSS shadow copy access to NTDS.dit — both a SIEM rule and an Endpoint prevention alert fire |
-| 6 | Credential Access | T1558 | [Kirbi File Creation](https://elastic.github.io/detection-rules-explorer/rules/b8f8da2d-a9dc-48c0-90e4-955c0aa1259a) | Creates a `.kirbi` Kerberos ticket dump file in the user temp directory — the file extension alone triggers the detection rule regardless of content |
+| 6 | Credential Access | T1558 | [Kirbi File Creation](https://elastic.github.io/detection-rules-explorer/rules/b8f8da2d-a9dc-48c0-90e4-955c0aa1259a) | Creates a `.kirbi` Kerberos ticket dump file in `C:\$RECYCLE.BIN\` — the file extension alone triggers the detection rule regardless of location or content |
 | 7 | Credential Access | T1555.004 | Malicious Behavior Prevention Alert: Suspicious Vault Files Access via RPC _(Endpoint built-in)_ | Invokes `vaultcmd /listcreds` to enumerate Windows Credential Manager — Elastic Endpoint intercepts the RPC call and fires a prevention alert before any credentials are read |
 | 8 | Collection | T1074.001, T1560.001 | File Staged in Root Folder of Recycle Bin _(building block)_ + PowerShell Script with Archive Compression Capabilities _(building block)_ → Multiple Alerts Involving a User _(correlated)_ | Compresses staged data files with `Compress-Archive` and copies the archive to `C:\$RECYCLE.BIN\` — both signals are building block alerts that combine with earlier demo alerts to trigger the correlation rule |
+| 9 | Exfiltration | T1048.002 | — | Uses `scp.exe` (bundled with Windows OpenSSH) to transfer `ticket.kirbi` and `totally_not_exfil_win.zip` from `C:\$RECYCLE.BIN\` to the exfil host configured in `config.ps1` |
 | — | Cleanup | — | — | Deletes the scheduled task and removes staged files |
 
 ---
@@ -158,13 +159,35 @@ Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlo
 
 `EnableScriptBlockLogging` should be `1`. Elastic Agent typically enables this automatically on enrolled hosts — check before configuring manually.
 
-### 4. Deploy to the Windows host
+### 4. Deploy the exfil SSH key to the Windows host
+
+Stage 9 uses `scp.exe` on the Windows host to transfer files to the exfil target. The key that authenticates to the exfil host must be present on the Windows host with correct permissions.
+
+**Copy the key from your local machine:**
+
+```sh
+source attacks/.env && scp -i "$WINDOWS_TARGET_SSH_KEY" ~/.ssh/cgrfn-gcp-deb_badlady "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST:C:/Users/bad_guy/.ssh/cgrfn-gcp-deb_badlady"
+```
+
+**Fix permissions** — Windows OpenSSH rejects keys with inherited ACLs:
+
+```sh
+source attacks/.env && ssh -i "$WINDOWS_TARGET_SSH_KEY" "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST" "icacls C:\\Users\\bad_guy\\.ssh\\cgrfn-gcp-deb_badlady /inheritance:r /grant:r \"bad_guy:(R)\""
+```
+
+**Verify connectivity** from the Windows host to the exfil host:
+
+```sh
+source attacks/.env && ssh -i "$WINDOWS_TARGET_SSH_KEY" "$WINDOWS_TARGET_SSH_USER@$WINDOWS_TARGET_HOST" "ssh -i C:/Users/bad_guy/.ssh/cgrfn-gcp-deb_badlady -o StrictHostKeyChecking=no $EXFILL_SSH_USER@$EXFILL_TARGET"
+```
+
+### 6. Deploy to the Windows host
 
 ```sh
 sh attacks/windows/demo_setup_windows.sh
 ```
 
-### 5. Run the demo
+### 7. Run the demo
 
 Run all stages sequentially:
 
@@ -188,7 +211,8 @@ sh attacks/windows/demo_start_windows.sh -s &lt;stage&gt;
 | `-s 6` | Credential Access (kirbi) |
 | `-s 7` | Credential Access (vaultcmd) |
 | `-s 8` | Collection (Recycle Bin staging) |
-| `-s 9` | Cleanup |
+| `-s 9` | Exfiltration |
+| `-s 10` | Cleanup |
 
 ---
 

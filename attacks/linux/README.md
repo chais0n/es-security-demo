@@ -115,7 +115,7 @@ Once the ssh users and keys are created and they're placed on the respective Loc
    TARGET_HOST_SSH_USER='' # The user SSH account on the TARGET_HOST that the demo_start_linux.sh script will use to ssh into the TARGET_HOST from the local machine
    EXFILL_TARGET=''        # Where the scp command will attempt to "exfill" the data; another cloud instance or other host
    EXFILL_SSH_USER=''      # The user SSH account on the EXFILL_TARGET
-   EXFILL_SSH_KEY=''       # The user account SSH private key on the TARGET_HOST that will be used to scp the 'exfill' data to the EXFILL_TARGET
+   EXFILL_LINUX_SSH_KEY=''       # The user account SSH private key on the TARGET_HOST that will be used to scp the 'exfill' data to the EXFILL_TARGET
    LOCAL_SSH_KEY=''        # The local machine private key; used by the demo_setup_linux.sh and demo_start_linux.sh scripts on local machine to ssh into the TARGET_HOST
    FILE='/dev/shm/totally_not_exfill.tar.gz' # The file that will be "exfilled." Recommended to leave this as-is unless you _know_ you need to change it
    ```
